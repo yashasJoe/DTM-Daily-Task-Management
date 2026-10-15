@@ -1,0 +1,9 @@
+Folder	Responsibility
+app/	App initialization and routing	router.jsx
+components/	Shared, reusable UI	Button.jsx
+features/	Feature-specific UI and logic	features/users/UserList.jsx
+services/	Backend/API communication	userService.js
+hooks/	Reusable stateful logic	useDebounce.js
+store/	Shared global state	Redux slices
+utils/	Pure utility functions	formatDate.js
+assets/	Images, fonts and icons	logo.svg
