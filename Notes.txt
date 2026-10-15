@@ -1,9 +1,178 @@
-Folder	Responsibility
-app/	App initialization and routing	router.jsx
-components/	Shared, reusable UI	Button.jsx
-features/	Feature-specific UI and logic	features/users/UserList.jsx
-services/	Backend/API communication	userService.js
-hooks/	Reusable stateful logic	useDebounce.js
-store/	Shared global state	Redux slices
-utils/	Pure utility functions	formatDate.js
-assets/	Images, fonts and icons	logo.svg
+# Daily Task Manager — React Learning Notes
+
+This document explains how this project is put together and which React ideas it demonstrates. Read it alongside the source files and trace one user action from the UI back to `App.jsx`.
+
+## 1. Project structure
+
+```text
+src/
+  App.jsx                    App composition, shared state, and task operations
+  main.jsx                   Browser entry point; mounts React into #root
+  index.css                  Global and component styles
+  components/
+    FilterButton.jsx         Reusable filter button
+    SearchInput.jsx          Reusable controlled search field
+    StatusElement.jsx        Reusable number-and-label display
+  features/
+    Header.jsx               App title and subtitle
+    StatusBar.jsx            Summary of task counts and progress
+    AddTask.jsx              Opens and submits the new-task form
+    SearchBox.jsx            Combines search and task-filter controls
+    TaskCard.jsx             Displays and updates one task
+```
+
+`components` holds small UI pieces that can be used in different parts of an app. `features` holds components that combine UI for a particular part of this task manager. These are conventions, not special React folders.
+
+## 2. How React starts the app
+
+Open `src/main.jsx`. `createRoot(...).render(...)` tells React to render `<App />` inside the HTML element whose id is `root`. `StrictMode` enables extra development checks; it does not change the production UI.
+
+`App.jsx` is the parent that composes the page:
+
+```jsx
+<Header />
+<StatusBar ... />
+<AddTask ... />
+<SearchBox ... />
+<TaskCard ... />
+```
+
+The components describe what the UI should look like. When state changes, React calls the components again and updates the DOM where needed.
+
+## 3. Task data and mock data
+
+At the top of `App.jsx`, `mockTasks` is an array of task objects. Each object has the same shape:
+
+```js
+{
+  id: "task-java-oop",
+  title: "Revise Java OOP Concepts",
+  priority: "High Priority",
+  category: "Work",
+  due: "Tomorrow",
+  date: "6/30/2025",
+  completed: false
+}
+```
+
+`id` identifies a task even if its title changes. `completed` is a boolean, so it can be checked directly. A consistent object shape makes it easier for `TaskCard` and the calculations to handle every task in the same way.
+
+## 4. State: values that change
+
+`App.jsx` has three pieces of state:
+
+```js
+const [tasks, setTasks] = useState(loadTasks);
+const [search, setSearch] = useState("");
+const [filter, setFilter] = useState("all");
+```
+
+`useState` returns the current value and a setter. Call the setter to ask React to render again with the new value. Do not assign directly to a state variable or mutate its array.
+
+`useState(loadTasks)` passes a function as a lazy initializer. React calls it to get the starting task list. This avoids reading browser storage on every render.
+
+### Updating arrays immutably
+
+The task actions use array methods to make new arrays:
+
+- **Add:** `[newTask, ...currentTasks]` makes an array with the new task first.
+- **Complete/uncomplete:** `.map()` returns a new array and a copied object for the matching task. `{ ...task, completed: !task.completed }` keeps the other task fields.
+- **Delete:** `.filter()` returns an array without the matching task.
+
+Each setter uses the functional form, such as `setTasks((currentTasks) => ...)`. This bases the update on the latest state value.
+
+## 5. Props: passing data and actions down
+
+State that several parts of the screen need lives in their common parent, `App`. `App` passes values and callbacks to child components as props.
+
+Examples:
+
+- `StatusBar` receives `total`, `active`, `completed`, and `progress`.
+- `SearchBox` receives the search value, filter value, counts, and change callbacks.
+- Each `TaskCard` receives its `task`, plus `onToggle` and `onDelete` callbacks.
+- `AddTask` receives `onAddTask`.
+
+Props flow from parent to child. A child does not change `App` state directly: it calls a callback prop, and the callback in `App` updates state. This is often called lifting state up and one-way data flow.
+
+For example, the checkbox calls `onToggle(task.id)`. `App` receives the id, updates `tasks`, and React renders the updated card and counts.
+
+## 6. Controlled inputs and events
+
+`SearchInput.jsx` is controlled: its `value` comes from `search` state, and each `onChange` sends the input's new value back to `App` through `onSearchChange`.
+
+```text
+type into SearchInput
+  → SearchBox calls onSearchChange(newText)
+  → App calls setSearch(newText)
+  → React renders with the new search value
+```
+
+The add-task form in `AddTask.jsx` has local state for its fields. Each input receives a `value` and an `onChange`. On submit, `event.preventDefault()` stops the browser's normal page reload. The component builds a new task and passes it to `onAddTask`.
+
+`FilterButton` uses a click handler. Its `active` prop controls the selected style and its `onClick` callback tells `App` which filter was chosen. `aria-pressed` exposes the selected state to assistive technology.
+
+## 7. Derived values: calculate instead of storing twice
+
+`App.jsx` calculates completed and active task counts, and the progress percentage, from `tasks`. These values are derived from the source of truth. They are not separate state, so they cannot accidentally get out of sync with the list.
+
+The visible task list is also derived. `useMemo` recalculates it when `tasks`, `search`, or `filter` changes:
+
+1. Normalize search text with `.trim().toLowerCase()`.
+2. Check whether the title includes the search text.
+3. Check whether the selected filter allows the task.
+4. Keep the task only when both checks pass.
+
+`useMemo` is a performance optimization for reusing a calculated value while its dependencies remain the same. For a very small list, this calculation could also be written directly during render; `useMemo` is not required for correctness.
+
+The `.map()` in the JSX turns each visible task object into a `TaskCard`. Its `key={task.id}` helps React match cards between renders when the list changes.
+
+## 8. Effects and browser storage
+
+`useEffect` in `App.jsx` synchronizes `tasks` with `localStorage`:
+
+```js
+useEffect(() => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+}, [tasks]);
+```
+
+The dependency array `[tasks]` means React runs this effect after the initial render and again whenever the task array changes. JSON converts the array to text for storage. `loadTasks` reads it back and uses `JSON.parse` to restore the array when the app starts.
+
+The `try/catch` blocks keep the app usable if storage is unavailable or contains invalid JSON. Search and filter do not need effects: they are state used to calculate what to display.
+
+To try the mock data again after browser storage has saved changes, clear the key `daily-task-manager.tasks` from DevTools → Application (or Storage) → Local Storage. Reloading alone will restore the saved task list.
+
+## 9. Follow a feature through the files
+
+### Completing a task
+
+1. In `TaskCard.jsx`, the checkbox `onChange` calls `onToggle(task.id)`.
+2. `App.jsx` passes `toggleTask` as the `onToggle` prop.
+3. `toggleTask` creates a new task array with the matching `completed` flag flipped.
+4. The derived counts and filtered tasks update on render.
+5. `useEffect` saves the changed task list.
+
+### Searching
+
+1. `SearchInput.jsx` reports the typed value through `onChange`.
+2. `SearchBox.jsx` passes the text to `onSearchChange`.
+3. `App.jsx` updates `search` state.
+4. The derived `visibleTasks` list includes only matching titles.
+
+### Adding a task
+
+1. `AddTask.jsx` opens its form using local `isOpen` state.
+2. Its controlled fields capture the user's values.
+3. Submitting builds a task with a unique id and calls `onAddTask`.
+4. `App.jsx` adds it to `tasks`, which updates the screen and storage.
+
+## 10. Try these learning exercises
+
+1. Add a `description` field to mock tasks and display it in `TaskCard`.
+2. Search both title and category instead of title only.
+3. Add a sort control and derive a sorted visible list.
+4. Show a different empty message for an empty task list versus no search results.
+5. Add a task edit action using the same immutable `.map()` pattern as `toggleTask`.
+6. Move task creation into a reusable form component, then explain which state belongs in that form and which belongs in `App`.
+
+When trying an exercise, make one change at a time and follow the value from input, through state and props, to the rendered output.
